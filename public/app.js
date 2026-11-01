@@ -1,7 +1,9 @@
 import { auth, db, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut,
   onAuthStateChanged, updateProfile, collection, query, orderBy, onSnapshot, addDoc,
   serverTimestamp } from "./firebase.js";
-import { el, errMsg, courseCard, noticeCard, commentItem, empty, taskCard, taskStatus } from "./common.js";
+import { googleButton, divider, forgotLink } from "./auth-ui.js";
+import { el, errMsg, dateOnly, classroomTable, noticeCard, commentItem, taskCard, taskStatus,
+  empty, tabs } from "./common.js";
 
 const root = document.getElementById("app");
 let unsubs = [];
@@ -12,9 +14,10 @@ onAuthStateChanged(auth, (user) => (user ? renderHub(user) : renderAuth("login")
 function renderAuth(mode) {
   stop();
   const msg = el("p", { class: "error", role: "alert" });
+  const note = el("p", { class: "ok small", role: "status" });
   const name = el("input", { placeholder: "Full name", autocomplete: "name", required: "", maxlength: "60" });
   const email = el("input", { type: "email", placeholder: "Email", autocomplete: "email", required: "" });
-  const pass = el("input", { type: "password", placeholder: "Password (min 6 characters)", required: "",
+  const pass = el("input", { type: "password", placeholder: "Password, at least 6 characters", required: "",
     autocomplete: mode === "login" ? "current-password" : "new-password" });
   const btn = el("button", { class: "btn", type: "submit" }, mode === "login" ? "Log in" : "Create account");
 
@@ -28,67 +31,88 @@ function renderAuth(mode) {
         renderHub(auth.currentUser);
       }
     } catch (err) { msg.textContent = errMsg(err); btn.disabled = false; }
-  } }, mode === "register" ? name : null, email, pass, msg, btn);
+  } }, mode === "register" ? name : null, email, pass, mode === "login" ? forgotLink(email, msg, note) : null, note, msg, btn);
 
-  const swap = el("button", { class: "link", type: "button",
-    onclick: () => renderAuth(mode === "login" ? "register" : "login") },
-    mode === "login" ? "New here? Create an account" : "Already registered? Log in");
+  const seg = el("div", { class: "seg" }, ...[["login", "Log in"], ["register", "Create account"]].map(([m, l]) =>
+    el("button", { type: "button", class: "seg-btn" + (m === mode ? " active" : ""), onclick: () => renderAuth(m) }, l)));
 
   root.replaceChildren(el("main", { class: "auth" },
     el("h1", {}, "Class Hub"),
-    el("p", { class: "muted" }, mode === "login" ? "Log in to see your class info." : "Create your student account."),
-    el("div", { class: "card" }, form), swap));
+    el("p", { class: "muted" }, "Student login. The class representative maintains this page."),
+    el("div", { class: "card" }, seg, googleButton(msg), divider(), form)));
 }
 
 function renderHub(user) {
   stop();
-  const notices = el("div", { class: "grid" });
-  const courses = el("div", { class: "grid" });
-  const tasks = el("div", { class: "grid" });
-  const list = el("div", { class: "comments" });
-  const text = el("textarea", { placeholder: "Write a comment…", maxlength: "500", required: "", rows: "3" });
-  const msg = el("p", { class: "error", role: "alert" });
-
-  const form = el("form", { class: "card", onsubmit: async (e) => {
-    e.preventDefault(); msg.textContent = "";
-    const t = text.value.trim(); if (!t) return;
-    try {
-      await addDoc(collection(db, "comments"), {
-        text: t, uid: user.uid, name: auth.currentUser.displayName || "Student", createdAt: serverTimestamp(),
-      });
-      text.value = "";
-    } catch (err) { msg.textContent = errMsg(err); }
-  } }, text, msg, el("button", { class: "btn", type: "submit" }, "Post comment"));
-
-  const watch = (col, dir, box, render, none) =>
-    unsubs.push(onSnapshot(query(collection(db, col), orderBy("createdAt", dir)),
-      (s) => box.replaceChildren(...(s.empty ? [empty(none)] : s.docs.map((d) => render(d.data())))),
-      (err) => box.replaceChildren(empty(errMsg(err)))));
-  watch("notices", "desc", notices, (n) => noticeCard(n), "No notices yet.");
-  // Tasks: re-drawn every 30s so cards turn "Done" by themselves when their time passes.
-  let taskDocs = null;
-  const drawTasks = () => {
-    if (!taskDocs) return;
-    const sorted = taskDocs.slice().sort((a, b) => (taskStatus(a) === "done") - (taskStatus(b) === "done")); // done → bottom
-    tasks.replaceChildren(...(sorted.length ? sorted.map((t) => taskCard(t)) : [empty("No tasks yet.")]));
+  const last = {};
+  const byline = el("p", { class: "byline" }, "Maintained by the CR");
+  const setByline = () => {
+    const t = Math.max(0, ...Object.values(last));
+    byline.textContent = "Maintained by the CR" + (t ? " · Last updated: " + dateOnly(new Date(t)) : "");
   };
-  unsubs.push(onSnapshot(query(collection(db, "tasks"), orderBy("start", "asc")),
-    (s) => { taskDocs = s.docs.map((d) => d.data()); drawTasks(); },
-    (err) => tasks.replaceChildren(empty(errMsg(err)))));
+
+  // One persistent node per tab. Snapshots update them in the background, so typing a
+  // comment is never interrupted and switching tabs is instant.
+  const sections = {
+    classroom: el("div", {}, el("h2", {}, "Classroom"), el("div")),
+    tasks: el("div", {}, el("h2", {}, "Tasks"), el("div", { class: "grid" })),
+    notices: el("div", {}, el("h2", {}, "Notices"), el("div", { class: "grid" })),
+    comments: el("div", {}, el("h2", {}, "Comments")),
+  };
+  const box = (id) => sections[id].lastElementChild;
+
+  const watch = (col, id, dir, draw) =>
+    unsubs.push(onSnapshot(query(collection(db, col), orderBy(col === "tasks" ? "start" : "createdAt", dir)),
+      (s) => {
+        const items = s.docs.map((d) => ({ id: d.id, ...d.data() }));
+        if (col !== "comments") {
+          last[col] = Math.max(0, ...items.map((i) => i.createdAt?.toMillis?.() || 0));
+          setByline();
+        }
+        draw(items);
+      },
+      (err) => box(id).replaceChildren(empty(errMsg(err)))));
+
+  watch("courses", "classroom", "asc", (items) =>
+    box("classroom").replaceChildren(items.length ? classroomTable(items) : empty("No courses yet.")));
+
+  let taskItems = [];
+  const drawTasks = () => {
+    const sorted = taskItems.slice().sort((a, b) => (taskStatus(a) === "done") - (taskStatus(b) === "done"));
+    box("tasks").replaceChildren(...(sorted.length ? sorted.map((t) => taskCard(t)) : [empty("No tasks yet.")]));
+  };
+  watch("tasks", "tasks", "asc", (items) => { taskItems = items; drawTasks(); });
   const tick = setInterval(drawTasks, 30000);
   unsubs.push(() => clearInterval(tick));
-  watch("courses", "asc", courses, (c) => courseCard(c), "No courses added yet.");
-  watch("comments", "desc", list, (c) => commentItem(c), "No comments yet. Be the first!");
+
+  watch("notices", "notices", "desc", (items) =>
+    box("notices").replaceChildren(...(items.length ? items.map((n) => noticeCard(n)) : [empty("No notices yet.")])));
+
+  const text = el("textarea", { placeholder: "Write a comment", maxlength: "500", required: "", rows: "3" });
+  const msg = el("p", { class: "error", role: "alert" });
+  const list = el("div", { class: "stack" });
+  sections.comments.append(
+    el("form", { class: "card", onsubmit: async (e) => {
+      e.preventDefault(); msg.textContent = "";
+      const t = text.value.trim(); if (!t) return;
+      try {
+        await addDoc(collection(db, "comments"), {
+          text: t, uid: user.uid, name: auth.currentUser.displayName || "Student", createdAt: serverTimestamp(),
+        });
+        text.value = "";
+      } catch (err) { msg.textContent = errMsg(err); }
+    } }, text, msg, el("button", { class: "btn", type: "submit" }, "Post")),
+    list);
+  watch("comments", "comments", "desc", (items) =>
+    list.replaceChildren(...(items.length ? items.map((c) => commentItem(c)) : [empty("No comments yet.")])));
+
+  const { bar, body } = tabs(
+    [["classroom", "Classroom"], ["tasks", "Tasks"], ["notices", "Notices"], ["comments", "Comments"]],
+    (id, b) => b.replaceChildren(sections[id]));
 
   root.replaceChildren(
     el("header", { class: "top" },
-      el("strong", {}, "Class Hub"),
-      el("div", { class: "right" },
-        el("span", { class: "muted small" }, user.displayName || user.email),
-        el("button", { class: "btn ghost", onclick: () => signOut(auth) }, "Log out"))),
-    el("main", {},
-      el("h2", {}, "📢 Notices"), notices,
-      el("h2", {}, "🗓️ Tasks & deadlines"), tasks,
-      el("h2", {}, "📚 Courses"), courses,
-      el("h2", {}, "💬 Comments"), form, list));
+      el("span", { class: "muted small" }, user.displayName || user.email),
+      el("button", { class: "btn ghost", onclick: () => signOut(auth) }, "Log out")),
+    el("main", {}, el("h1", {}, "Class Hub"), byline, bar, body));
 }

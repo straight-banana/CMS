@@ -36,6 +36,13 @@ Admin → **Tasks** → add an assignment / quiz / exam with a start (due) time 
 - **Update the rules:** re-paste `firestore.rules` in Firebase → Firestore → Rules → Publish (adds `tasks`).
 
 ## Import from your Google Doc
-`/admin → Import`: pick Courses / Tasks / Notices, then copy the table from the Google Doc (or Sheet) and paste it in.
+`/admin → Import`: pick Classroom, Tasks or Notices, then copy the table from the Google Doc (or Sheet) and paste it in.
 The first row must be column names (e.g. Course, Code, Credit, Teacher, Phone / Email, Office hours, Google Classroom code).
 Preview shows what was found; click Import. For tasks use dates like `2026-11-10 14:00`.
+
+## Google login and password reset
+1. Firebase → Authentication → Sign-in method → Add new provider → **Google** → Enable → pick a support email → Save.
+2. Your site's domain must be in Authentication → Settings → Authorized domains (same step as before).
+3. Password reset needs no setup. "Forgot password?" sends Firebase's reset email. Edit its wording under
+   Authentication → Templates. People who signed up with Google reset their password with Google, not here.
+4. A CR who logs in with Google becomes an admin the same way: copy their UID from Authentication → Users and create `admins/<UID>`.

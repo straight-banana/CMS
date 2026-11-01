@@ -11,61 +11,69 @@ export const el = (tag, props = {}, ...kids) => {
 
 export const fmt = (ts) =>
   ts?.toDate ? ts.toDate().toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "just now";
+export const dateOnly = (d) => d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 
 const ERRORS = {
   "auth/invalid-credential": "Wrong email or password.",
-  "auth/invalid-email": "Please enter a valid email.",
-  "auth/email-already-in-use": "This email is already registered. Try logging in.",
-  "auth/weak-password": "Password must be at least 6 characters.",
+  "auth/invalid-email": "Enter a valid email address.",
+  "auth/email-already-in-use": "This email is already registered. Log in instead.",
+  "auth/weak-password": "The password needs at least 6 characters.",
   "auth/too-many-requests": "Too many attempts. Try again later.",
-  "auth/network-request-failed": "Network error. Check your connection.",
-  "permission-denied": "You don't have permission to do that.",
+  "auth/network-request-failed": "No connection. Check your network and try again.",
+  "auth/popup-blocked": "Your browser blocked the Google window. Allow pop-ups for this site and try again.",
+  "auth/unauthorized-domain": "This site's domain is not in the Firebase authorized domains list yet.",
+  "auth/operation-not-allowed": "This sign-in method is not turned on in Firebase yet.",
+  "auth/missing-email": "Enter your email address.",
+  "permission-denied": "You do not have permission to do that.",
 };
 export const errMsg = (e) => ERRORS[e.code] || e.message || "Something went wrong.";
+export const empty = (t) => el("p", { class: "empty" }, t);
 
-const info = (label, value) =>
-  value ? el("p", { class: "info" }, el("span", { class: "muted" }, label), el("span", {}, value)) : null;
+// Columns match the Google Doc table, in the same order, with the same labels.
+export const COLS = [
+  ["course", "Course"], ["code", "Code"], ["credit", "Credit"], ["teacher", "Teacher"],
+  ["contact", "Phone / Email"], ["office", "Office hours"], ["classroomCode", "Google Classroom code"],
+];
 
-export const courseCard = (c, actions) =>
-  el("article", { class: "card" },
-    el("div", { class: "row" }, el("h3", {}, c.course), el("span", { class: "pill" }, `${c.credit || "—"} cr`)),
-    el("p", { class: "muted code" }, c.code || ""),
-    info("Teacher", c.teacher), info("Contact", c.contact),
-    info("Office hours", c.office), info("Classroom code", c.classroomCode),
-    actions);
+export const classroomTable = (items, onDelete) =>
+  el("div", { class: "table-wrap" }, el("table", { class: "doc" },
+    el("thead", {}, el("tr", {},
+      ...COLS.map(([, label]) => el("th", { scope: "col" }, label)),
+      onDelete ? el("th", { scope: "col" }, "Action") : null)),
+    el("tbody", {}, ...items.map((c) => el("tr", {},
+      ...COLS.map(([k, label]) => el("td", { "data-label": label }, c[k] || null)),
+      onDelete ? el("td", { "data-label": "Action" },
+        el("button", { class: "btn danger", onclick: () => onDelete(c) }, "Delete")) : null)))));
 
 export const noticeCard = (n, actions) =>
   el("article", { class: "card" },
-    el("h3", {}, n.title), el("p", { class: "body" }, n.body || ""),
+    el("h3", {}, n.title), el("p", { class: "text" }, n.body || null),
     el("p", { class: "muted small" }, fmt(n.createdAt)), actions);
 
 export const commentItem = (c, actions) =>
   el("div", { class: "comment" },
     el("div", { class: "row" }, el("strong", {}, c.name || "Student"), el("span", { class: "muted small" }, fmt(c.createdAt))),
-    el("p", { class: "body" }, c.text), actions);
+    el("p", { class: "text" }, c.text), actions);
 
-export const empty = (t) => el("p", { class: "muted empty" }, t);
-
-// ---------- Tasks: status, Google Calendar link, .ics ----------
+// ---------- Tasks: status from the clock, Google Calendar link, .ics ----------
 const pad = (n) => String(n).padStart(2, "0");
 const utc = (d) => `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}00Z`;
 const span = (t) => {
   const s = t.start.toDate();
-  const e = t.end?.toDate ? t.end.toDate() : new Date(s.getTime() + 3600000); // default: 1 hour
+  const e = t.end?.toDate ? t.end.toDate() : new Date(s.getTime() + 3600000); // no end time: 1 hour
   return [s, e];
 };
 
-// RULE: status is computed from the clock, so it flips automatically as time passes.
-// upcoming → soon (< 24h before start) → now (between start and end) → done (after end)
+// A task is upcoming, then due soon (under 24 hours before the start), then happening now,
+// then done once the end time passes. The page re-checks the clock every 30 seconds.
 export const taskStatus = (t) => {
   const [s, e] = span(t), now = Date.now();
   if (now >= e) return "done";
   if (now >= s) return "now";
   return s - now < 864e5 ? "soon" : "upcoming";
 };
-const LABEL = { done: "✓ Done", now: "● Happening now", soon: "Due soon", upcoming: "Upcoming" };
+const LABEL = { done: "Done", now: "Happening now", soon: "Due soon", upcoming: "Upcoming" };
 
-// RULE: one tap adds it to Google Calendar (no login/permissions needed).
 export const gcalUrl = (t) => {
   const [s, e] = span(t);
   return "https://calendar.google.com/calendar/render?" + new URLSearchParams({
@@ -91,8 +99,8 @@ const downloadIcs = (t) => {
 const when = (t) => {
   const [s, e] = span(t), o = { dateStyle: "medium", timeStyle: "short" };
   return s.toDateString() === e.toDateString()
-    ? `${s.toLocaleString([], o)} – ${e.toLocaleTimeString([], { timeStyle: "short" })}`
-    : `${s.toLocaleString([], o)} → ${e.toLocaleString([], o)}`;
+    ? `${s.toLocaleString([], o)} to ${e.toLocaleTimeString([], { timeStyle: "short" })}`
+    : `${s.toLocaleString([], o)} to ${e.toLocaleString([], o)}`;
 };
 
 export const taskCard = (t, actions) => {
@@ -100,10 +108,30 @@ export const taskCard = (t, actions) => {
   return el("article", { class: `card task ${st}` },
     el("div", { class: "row" }, el("h3", {}, t.title), el("span", { class: `badge ${st}` }, LABEL[st])),
     el("p", { class: "muted small" }, [t.type, t.course].filter(Boolean).join(" · ")),
-    el("p", {}, "🕒 " + when(t)),
-    t.details ? el("p", { class: "body" }, t.details) : null,
+    el("p", {}, when(t)),
+    t.details ? el("p", { class: "text" }, t.details) : null,
     el("div", { class: "actions" },
-      st !== "done" ? el("a", { class: "btn ghost", href: gcalUrl(t), target: "_blank", rel: "noopener" }, "📅 Add to Google Calendar") : null,
-      st !== "done" ? el("button", { class: "btn ghost", onclick: () => downloadIcs(t) }, ".ics") : null,
+      st !== "done" ? el("a", { class: "btn ghost", href: gcalUrl(t), target: "_blank", rel: "noopener" }, "Add to Google Calendar") : null,
+      st !== "done" ? el("button", { class: "btn ghost", onclick: () => downloadIcs(t) }, "Download .ics") : null,
       actions));
 };
+
+// ---------- Tabs, one per section of the doc. The tab name is kept in the URL hash. ----------
+export function tabs(defs, render) {
+  const bar = el("nav", { class: "tabs", role: "tablist" });
+  const body = el("div", { class: "panel" });
+  const select = (id, push = true) => {
+    if (!defs.some((d) => d[0] === id)) id = defs[0][0];
+    [...bar.children].forEach((b) => {
+      const on = b.dataset.t === id;
+      b.classList.toggle("active", on);
+      b.setAttribute("aria-selected", String(on));
+    });
+    if (push) history.replaceState(null, "", "#" + id);
+    render(id, body);
+  };
+  defs.forEach(([id, label]) =>
+    bar.append(el("button", { class: "tab", role: "tab", "data-t": id, onclick: () => select(id) }, label)));
+  select(location.hash.slice(1), false);
+  return { bar, body };
+}
