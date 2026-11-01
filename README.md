@@ -26,8 +26,14 @@ Then Firebase → Authentication → Settings → **Authorized domains** → add
 ## Seed data
 The course table from your Google Doc goes in via `/admin → Courses`.
 
+## Tabs
+Students and admins see: **Classroom · Class Tests · Tasks · Notices · Comments** (admin also has **Import**).
+- **Class Tests** shows every task whose type is *Class Test*. **Tasks** shows all the other types (assignment, quiz, exam, lab, class, other).
+- In the admin **Class Tests** tab the add form is already set to *Class Test* and *All day*, so you only type the title, course, date and syllabus.
+- Both tabs read the same `tasks` data, so the JSON import, paste import, status picker and Edit work the same in each. The type decides the tab.
+
 ## Tasks & auto rules
-Admin → **Tasks** → add an assignment / **class test** / quiz / exam with a start (due) time and optional end time.
+Admin → **Tasks** (or **Class Tests**) → add an assignment / **class test** / quiz / exam with a start (due) time and optional end time.
 - **Class tests:** pick the type **Class Test**. Class tests usually have a date but no time, so tick
   **All day, no specific time**. The card then shows the date with "All day", the badge reads **Today** on the day,
   and it turns green after midnight. Google Calendar and `.ics` get a proper all-day event
@@ -38,6 +44,14 @@ Admin → **Tasks** → add an assignment / **class test** / quiz / exam with a 
   green ✓ = done (after the end time, or start + 1 hour if no end is set). Cards re-check every 30 seconds
   and move to the bottom once done. Nothing to click.
 - **Update the rules:** re-paste `firestore.rules` in Firebase → Firestore → Rules → Publish (adds `tasks`).
+
+## Set the status by hand
+Admin → **Tasks**: every task card has a **status picker** and an **Edit** button.
+- **Auto (by time)** is the default: upcoming, due within 24h, happening now, done after the end.
+- **Upcoming / Due soon / Rescheduled / Done** are set by you and stay until you change them. Students see the same badge and colour
+  (Rescheduled is purple). Done tasks move to the bottom of the student list and lose their calendar buttons.
+- **Edit** opens the whole task (title, type, course, date, all day, details, status) so you can move a date and mark it Rescheduled in one save.
+- JSON and pasted tables can also carry `"status": "rescheduled"` (or upcoming, due soon, done).
 
 ## Import JSON files (many at once)
 `/admin → Import → Import JSON files`: choose or drag in as many `.json` files as you like. One file can hold

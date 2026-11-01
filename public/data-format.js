@@ -3,6 +3,10 @@
 
 export const TYPES = ["Assignment", "Class Test", "Quiz", "Exam", "Lab", "Class", "Other"];
 
+// The CR can set a task's status by hand. "" means automatic: worked out from the clock.
+export const STATUSES = [["", "Auto (by time)"], ["upcoming", "Upcoming"], ["soon", "Due soon"],
+  ["rescheduled", "Rescheduled"], ["done", "Done"]];
+
 const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 export const norm = (h) => String(h ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
 // For duplicate checks. Unlike norm() it keeps non-Latin letters, so Bengali titles do not all look the same.
@@ -18,7 +22,8 @@ export const ALIAS = {
     googleclassroomcode: "classroomCode", classroomcode: "classroomCode", classroom: "classroomCode" },
   tasks: { title: "title", task: "title", name: "title", ctno: "title", type: "type", course: "course", subject: "course",
     start: "start", starts: "start", due: "start", duedate: "start", date: "start", end: "end", ends: "end",
-    details: "details", description: "details", notes: "details", syllabus: "details", allday: "allDay" },
+    details: "details", description: "details", notes: "details", syllabus: "details", allday: "allDay",
+    status: "status" },
   notices: { title: "title", heading: "title", body: "body", details: "body", description: "body", text: "body" },
 };
 export const REQUIRED = { courses: "course", tasks: "title", notices: "title" };
@@ -32,6 +37,9 @@ export const canon = (col, header) => { const n = norm(header); return has(ALIAS
 
 const TYPE_ALIAS = { assignment: "Assignment", homework: "Assignment", classtest: "Class Test", ct: "Class Test",
   test: "Class Test", quiz: "Quiz", exam: "Exam", lab: "Lab", class: "Class", other: "Other" };
+const STATUS_ALIAS = { upcoming: "upcoming", due: "soon", duesoon: "soon", soon: "soon", done: "done", complete: "done",
+  completed: "done", rescheduled: "rescheduled", postponed: "rescheduled", moved: "rescheduled" };
+export const normStatus = (v) => { const n = norm(v); return has(STATUS_ALIAS, n) ? STATUS_ALIAS[n] : ""; };
 export const normType = (v) => { const n = norm(v); return has(TYPE_ALIAS, n) ? TYPE_ALIAS[n] : "Other"; };
 
 export const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
@@ -88,6 +96,8 @@ export function normalizeRecord(col, raw, { defaultType } = {}) {
     if (!allDay && d.end) { const e = parseWhen(d.end); if (e && e.date > rec.start) rec.end = e.date; }
     rec.allDay = allDay;
     rec.type = d.type ? normType(d.type) : defaultType || "Other";
+    const st = normStatus(d.status);
+    if (st) rec.status = st;
   }
   return { rec, ignored };
 }
@@ -141,7 +151,7 @@ export const EXAMPLE = {
     office: "Mon: 10:00 - 11:00", classroomCode: "abc123xy" }],
   tasks: [
     { title: "CT-1: Machine Learning", type: "Class Test", course: "CSE-411 Machine Learning", start: "2026-11-09",
-      details: "Syllabus: Chapter-2" },
+      details: "Syllabus: Chapter-2", status: "upcoming" },
     { title: "Assignment 1", type: "Assignment", course: "CSE-413 Compiler Design", start: "2026-11-12 23:59",
       details: "Submit on Google Classroom" },
     { title: "Lab quiz", type: "Quiz", course: "CSE-412 Machine Learning Sessional", start: "2026-11-15 10:00",

@@ -1,3 +1,5 @@
+import { STATUSES } from "./data-format.js";
+
 export const el = (tag, props = {}, ...kids) => {
   const n = document.createElement(tag);
   for (const [k, v] of Object.entries(props)) {
@@ -70,13 +72,16 @@ const span = (t) => {
 
 // A task is upcoming, then due soon (under 24 hours before the start), then happening now,
 // then done once the end time passes. The page re-checks the clock every 30 seconds.
+export const isClassTest = (t) => t.type === "Class Test";   // class tests get their own tab; every other type goes under Tasks
+const MANUAL = new Set(STATUSES.map(([v]) => v).filter(Boolean));
 export const taskStatus = (t) => {
+  if (MANUAL.has(t.status)) return t.status;           // set by hand in the admin panel
   const [s, e] = span(t), now = Date.now();
   if (now >= e) return "done";
   if (now >= s) return "now";
   return s - now < 864e5 ? "soon" : "upcoming";
 };
-const LABEL = { done: "Done", now: "Happening now", soon: "Due soon", upcoming: "Upcoming" };
+const LABEL = { done: "Done", now: "Happening now", soon: "Due soon", upcoming: "Upcoming", rescheduled: "Rescheduled" };
 const labelOf = (t, st) => (st === "now" && t.allDay ? "Today" : LABEL[st]);
 
 export const gcalUrl = (t) => {

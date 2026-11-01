@@ -1,8 +1,8 @@
 import { auth, db, signInWithEmailAndPassword, signOut, onAuthStateChanged, collection, query,
-  orderBy, onSnapshot, addDoc, deleteDoc, doc, getDoc, serverTimestamp, Timestamp, writeBatch } from "./firebase.js";
+  orderBy, onSnapshot, addDoc, updateDoc, deleteDoc, doc, getDoc, serverTimestamp, Timestamp, writeBatch } from "./firebase.js";
 import { googleButton, divider, forgotLink } from "./auth-ui.js";
-import { el, errMsg, classroomTable, noticeCard, commentItem, taskCard, empty, tabs, COLS } from "./common.js";
-import { TYPES, REQUIRED, canon, normalizeRecord, parseWhen } from "./data-format.js";
+import { el, errMsg, classroomTable, noticeCard, commentItem, taskCard, empty, tabs, isClassTest, COLS } from "./common.js";
+import { TYPES, STATUSES, REQUIRED, canon, normalizeRecord, parseWhen } from "./data-format.js";
 import { jsonImportView, toDoc } from "./json-import.js";
 
 const root = document.getElementById("app");
@@ -48,15 +48,22 @@ function renderLogin() {
     el("p", {}, el("a", { class: "link", href: "/" }, "Go to the student page"))));
 }
 
-const TAB_COL = { classroom: "courses", tasks: "tasks", notices: "notices" };
+// Class tests and other tasks live in one Firestore collection ("tasks"); the type decides which tab shows them.
+const OTHER_TYPES = TYPES.filter((t) => t !== "Class Test");
+const TABS = {
+  classroom: () => manager("courses", "Classroom"),
+  classtests: () => manager("tasks", "Class Tests", { only: isClassTest, types: ["Class Test"], allDay: true, noun: "a class test" }),
+  tasks: () => manager("tasks", "Tasks", { only: (t) => !isClassTest(t), types: OTHER_TYPES }),
+  notices: () => manager("notices", "Notices"),
+};
 
 function renderPanel() {
   const { bar, body } = tabs(
-    [["classroom", "Classroom"], ["tasks", "Tasks"], ["notices", "Notices"], ["comments", "Comments"], ["import", "Import"]],
+    [["classroom", "Classroom"], ["classtests", "Class Tests"], ["tasks", "Tasks"], ["notices", "Notices"], ["comments", "Comments"], ["import", "Import"]],
     (id, b) => {
       stop();
       b.replaceChildren(id === "comments" ? section("Comments", listOf("comments", "desc"))
-        : id === "import" ? importView() : manager(TAB_COL[id], id[0].toUpperCase() + id.slice(1)));
+        : id === "import" ? importView() : TABS[id]());
     });
   root.replaceChildren(
     el("header", { class: "top" }, el("span", { class: "muted small" }, "Admin"),
@@ -67,31 +74,19 @@ function renderPanel() {
 
 const section = (title, ...kids) => el("div", {}, el("h2", {}, title), ...kids);
 
-function listOf(col, dir) {
-  const out = el("div");
-  const del = async (id) => {
-    if (!confirm("Delete this permanently?")) return;
-    try { await deleteDoc(doc(db, col, id)); } catch (e) { alert(errMsg(e)); }
-  };
-  unsubs.push(onSnapshot(query(collection(db, col), orderBy(col === "tasks" ? "start" : "createdAt", dir)),
-    (s) => {
-      const items = s.docs.map((d) => ({ id: d.id, ...d.data() }));
-      out.replaceChildren(!items.length ? empty("Nothing here yet.")
-        : col === "courses" ? classroomTable(items, (c) => del(c.id))
-        : el("div", { class: col === "comments" ? "stack" : "grid" }, ...items.map((i) =>
-            RENDER[col](i, el("button", { class: "btn danger", onclick: () => del(i.id) }, "Delete")))));
-    },
-    (e) => out.replaceChildren(empty(errMsg(e)))));
-  return out;
-}
+const p2 = (n) => String(n).padStart(2, "0");
+const ymd = (d) => `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
+const ymdhm = (d) => `${ymd(d)}T${p2(d.getHours())}:${p2(d.getMinutes())}`;
 
-function manager(col, title) {
+// The form for one collection. Used to add a new item and, for tasks, to edit an existing one.
+// collect() returns { data } or { error }. fill(item) puts an existing item into the fields.
+function buildForm(col, { labeled = false, types = TYPES, allDay: allDayDefault = false } = {}) {
   const fields = FIELDS[col].map(([k, label, req, multi, kind]) => {
     const input = kind === "select"
-      ? el("select", { name: k }, ...TYPES.map((t) => el("option", { value: t }, t)))
+      ? el("select", { name: k }, ...types.map((t) => el("option", { value: t }, t)))
       : el(multi ? "textarea" : "input", { name: k, placeholder: label + (req ? " (required)" : ""),
           ...(kind ? { type: kind } : {}), ...(req ? { required: "" } : {}) });
-    const node = kind === "datetime-local"
+    const node = kind === "datetime-local" || labeled
       ? el("label", { class: "field" }, el("span", { class: "muted small" }, label + (req ? " (required)" : "")), input)
       : input;
     return { k, kind, input, node };
@@ -99,10 +94,11 @@ function manager(col, title) {
   const field = (k) => fields.find((f) => f.k === k);
   const nodes = fields.map((f) => f.node);
 
-  // Tasks only: "All day" turns the start into a plain date (class tests have a date but no time).
-  let allDay = null, syncAllDay = () => {};
+  // Tasks only: "All day" turns the start into a plain date (class tests have a date but no time),
+  // and Status lets the CR set upcoming / due soon / rescheduled / done by hand.
+  let allDay = null, status = null, syncAllDay = () => {};
   if (col === "tasks") {
-    allDay = el("input", { type: "checkbox", name: "allDay" });
+    allDay = el("input", { type: "checkbox", name: "allDay", ...(allDayDefault ? { checked: "" } : {}) });
     syncAllDay = () => {
       const on = allDay.checked, s = field("start"), e = field("end"), v = s.input.value;
       s.input.type = on ? "date" : "datetime-local";                       // the browser clears the value when the type changes,
@@ -111,25 +107,97 @@ function manager(col, title) {
       e.node.style.display = on ? "none" : "";
     };
     allDay.addEventListener("change", syncAllDay);
+    status = el("select", { name: "status" }, ...STATUSES.map(([v, l]) => el("option", { value: v }, l)));
     nodes.splice(nodes.indexOf(field("end").node) + 1, 0,
-      el("label", { class: "check" }, allDay, el("span", {}, "All day, no specific time (good for class tests)")));
+      el("label", { class: "check" }, allDay, el("span", {}, "All day, no specific time (good for class tests)")),
+      el("label", { class: "field" }, el("span", { class: "muted small" }, "Status. Auto follows the clock; the others stay until you change them."), status));
   }
 
-  const msg = el("p", { class: "error", role: "alert" });
-  const form = el("form", { onsubmit: async (e) => {
-    e.preventDefault(); msg.textContent = "";
-    const data = { createdAt: serverTimestamp() };
+  if (allDayDefault && col === "tasks") syncAllDay();          // class tests start in all-day mode
+
+  const collect = () => {
+    const data = {};
     for (const f of fields) if (f.kind !== "datetime-local") data[f.k] = f.input.value.trim();
     if (col === "tasks") {
       const on = allDay.checked, s = parseWhen(field("start").input.value), en = on ? null : parseWhen(field("end").input.value);
-      if (!s) { msg.textContent = "Pick a valid date."; return; }
-      if (en && en.date <= s.date) { msg.textContent = "The end time must be after the start time."; return; }
-      data.start = Timestamp.fromDate(s.date); data.end = en ? Timestamp.fromDate(en.date) : null; data.allDay = on;
+      if (!s) return { error: "Pick a valid date." };
+      if (en && en.date <= s.date) return { error: "The end time must be after the start time." };
+      data.start = Timestamp.fromDate(s.date); data.end = en ? Timestamp.fromDate(en.date) : null;
+      data.allDay = on; data.status = status.value;
     }
-    try { await addDoc(collection(db, col), data); form.reset(); syncAllDay(); } catch (err) { msg.textContent = errMsg(err); }
-  } }, nodes, msg, el("button", { class: "btn", type: "submit" }, "Add"));
-  const add = el("details", { class: "card add", open: "" }, el("summary", {}, `Add ${NOUN[col]}`), form);
-  return section(title, add, listOf(col, col === "notices" ? "desc" : "asc"));
+    return { data };
+  };
+
+  const fill = (item) => {
+    for (const f of fields) if (f.kind !== "datetime-local") f.input.value = item[f.k] || "";
+    if (col !== "tasks") return;
+    allDay.checked = !!item.allDay; syncAllDay();
+    const s = item.start?.toDate?.(), e = item.end?.toDate?.();
+    field("start").input.value = s ? (item.allDay ? ymd(s) : ymdhm(s)) : "";
+    field("end").input.value = e && !item.allDay ? ymdhm(e) : "";
+    status.value = item.status || "";
+  };
+  const reset = () => { fields.forEach((f) => { f.input.value = f.input.tagName === "SELECT" ? f.input.options[0].value : ""; });
+    if (col === "tasks") { allDay.checked = allDayDefault; status.value = ""; syncAllDay(); } };
+  return { nodes, collect, fill, reset };
+}
+
+function listOf(col, dir, { only = () => true, types } = {}) {
+  const out = el("div");
+  let items = [], editing = null;                       // editing: id of the task whose form is open
+  const del = async (id) => {
+    if (!confirm("Delete this permanently?")) return;
+    try { await deleteDoc(doc(db, col, id)); } catch (e) { alert(errMsg(e)); }
+  };
+
+  // Tasks get a status picker and an Edit button next to Delete.
+  const taskActions = (i) => [
+    el("select", { class: "status-select", "aria-label": `Status of ${i.title}`, onchange: async (e) => {
+      try { await updateDoc(doc(db, "tasks", i.id), { status: e.target.value }); } catch (err) { alert(errMsg(err)); }
+    } }, ...STATUSES.map(([v, l]) => el("option", { value: v, ...((i.status || "") === v ? { selected: "" } : {}) }, l))),
+    el("button", { class: "btn ghost", onclick: () => { editing = i.id; draw(); } }, "Edit"),
+    el("button", { class: "btn danger", onclick: () => del(i.id) }, "Delete"),
+  ];
+
+  const editCard = (i) => {
+    const f = buildForm("tasks", { labeled: true, types });
+    f.fill(i);
+    const msg = el("p", { class: "error", role: "alert" });
+    return el("article", { class: "card" }, el("h3", {}, "Edit task"),
+      el("form", { onsubmit: async (e) => {
+        e.preventDefault(); msg.textContent = "";
+        const r = f.collect();
+        if (r.error) { msg.textContent = r.error; return; }
+        try { await updateDoc(doc(db, "tasks", i.id), r.data); editing = null; draw(); } catch (err) { msg.textContent = errMsg(err); }
+      } }, f.nodes, msg,
+      el("div", { class: "actions" }, el("button", { class: "btn", type: "submit" }, "Save"),
+        el("button", { class: "btn ghost", type: "button", onclick: () => { editing = null; draw(); } }, "Cancel"))));
+  };
+
+  const draw = () => out.replaceChildren(!items.length ? empty("Nothing here yet.")
+    : col === "courses" ? classroomTable(items, (c) => del(c.id))
+    : el("div", { class: col === "comments" ? "stack" : "grid" }, ...items.map((i) =>
+        col === "tasks" ? (editing === i.id ? editCard(i) : taskCard(i, taskActions(i)))
+        : RENDER[col](i, el("button", { class: "btn danger", onclick: () => del(i.id) }, "Delete")))));
+
+  unsubs.push(onSnapshot(query(collection(db, col), orderBy(col === "tasks" ? "start" : "createdAt", dir)),
+    (s) => { items = s.docs.map((d) => ({ id: d.id, ...d.data() })).filter(only); draw(); },
+    (e) => out.replaceChildren(empty(errMsg(e)))));
+  return out;
+}
+
+function manager(col, title, { only, types, allDay, noun } = {}) {
+  const f = buildForm(col, { types, allDay });
+  const msg = el("p", { class: "error", role: "alert" });
+  const form = el("form", { onsubmit: async (e) => {
+    e.preventDefault(); msg.textContent = "";
+    const r = f.collect();
+    if (r.error) { msg.textContent = r.error; return; }
+    try { await addDoc(collection(db, col), { ...r.data, createdAt: serverTimestamp() }); f.reset(); }
+    catch (err) { msg.textContent = errMsg(err); }
+  } }, f.nodes, msg, el("button", { class: "btn", type: "submit" }, "Add"));
+  const add = el("details", { class: "card add", open: "" }, el("summary", {}, `Add ${noun || NOUN[col]}`), form);
+  return section(title, add, listOf(col, col === "notices" ? "desc" : "asc", { only, types }));
 }
 
 // ---------- Import: JSON files (many at once) and pasted tables ----------

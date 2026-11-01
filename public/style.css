@@ -128,3 +128,11 @@ details.add form { margin-top: 12px; }
 .problems pre { margin: 10px 0; padding: 12px; overflow-x: auto; font-size: .8rem; line-height: 1.45; background: var(--bg);
   border: 1px solid var(--line); border-radius: 8px; }
 .sum table.doc td:not(:first-child), .sum table.doc th:not(:first-child) { text-align: right; }
+
+/* Rescheduled (set by hand) and the admin status picker */
+:root { --resched: #7b4fd6; }
+@media (prefers-color-scheme: dark) { :root { --resched: #b79bff; } }
+.task.rescheduled { border-left-color: var(--resched); }
+.badge.rescheduled { background: color-mix(in srgb, var(--resched) 18%, transparent); color: var(--resched); }
+.status-select { width: auto; padding: 7px 10px; }
+.field > .muted { font-weight: 600; }

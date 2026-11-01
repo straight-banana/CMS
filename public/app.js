@@ -2,7 +2,7 @@ import { auth, db, createUserWithEmailAndPassword, signInWithEmailAndPassword, s
   onAuthStateChanged, updateProfile, collection, query, orderBy, onSnapshot, addDoc,
   serverTimestamp } from "./firebase.js";
 import { googleButton, divider, forgotLink } from "./auth-ui.js";
-import { el, errMsg, dateOnly, classroomTable, noticeCard, commentItem, taskCard, taskStatus,
+import { el, errMsg, dateOnly, classroomTable, noticeCard, commentItem, taskCard, taskStatus, isClassTest,
   empty, tabs } from "./common.js";
 
 const root = document.getElementById("app");
@@ -55,6 +55,7 @@ function renderHub(user) {
   // comment is never interrupted and switching tabs is instant.
   const sections = {
     classroom: el("div", {}, el("h2", {}, "Classroom"), el("div")),
+    classtests: el("div", {}, el("h2", {}, "Class Tests"), el("div", { class: "grid" })),
     tasks: el("div", {}, el("h2", {}, "Tasks"), el("div", { class: "grid" })),
     notices: el("div", {}, el("h2", {}, "Notices"), el("div", { class: "grid" })),
     comments: el("div", {}, el("h2", {}, "Comments")),
@@ -71,17 +72,20 @@ function renderHub(user) {
         }
         draw(items);
       },
-      (err) => box(id).replaceChildren(empty(errMsg(err)))));
+      (err) => [].concat(id).forEach((x) => box(x).replaceChildren(empty(errMsg(err))))));
 
   watch("courses", "classroom", "asc", (items) =>
     box("classroom").replaceChildren(items.length ? classroomTable(items) : empty("No courses yet.")));
 
+  // One list of tasks from Firestore, shown in two tabs: class tests, and everything else.
   let taskItems = [];
   const drawTasks = () => {
     const sorted = taskItems.slice().sort((a, b) => (taskStatus(a) === "done") - (taskStatus(b) === "done"));
-    box("tasks").replaceChildren(...(sorted.length ? sorted.map((t) => taskCard(t)) : [empty("No tasks yet.")]));
+    const fill = (id, list, none) => box(id).replaceChildren(...(list.length ? list.map((t) => taskCard(t)) : [empty(none)]));
+    fill("classtests", sorted.filter(isClassTest), "No class tests yet.");
+    fill("tasks", sorted.filter((t) => !isClassTest(t)), "No tasks yet.");
   };
-  watch("tasks", "tasks", "asc", (items) => { taskItems = items; drawTasks(); });
+  watch("tasks", ["classtests", "tasks"], "asc", (items) => { taskItems = items; drawTasks(); });
   const tick = setInterval(drawTasks, 30000);
   unsubs.push(() => clearInterval(tick));
 
@@ -107,7 +111,7 @@ function renderHub(user) {
     list.replaceChildren(...(items.length ? items.map((c) => commentItem(c)) : [empty("No comments yet.")])));
 
   const { bar, body } = tabs(
-    [["classroom", "Classroom"], ["tasks", "Tasks"], ["notices", "Notices"], ["comments", "Comments"]],
+    [["classroom", "Classroom"], ["classtests", "Class Tests"], ["tasks", "Tasks"], ["notices", "Notices"], ["comments", "Comments"]],
     (id, b) => b.replaceChildren(sections[id]));
 
   root.replaceChildren(
