@@ -27,7 +27,11 @@ Then Firebase → Authentication → Settings → **Authorized domains** → add
 The course table from your Google Doc goes in via `/admin → Courses`.
 
 ## Tasks & auto rules
-Admin → **Tasks** → add an assignment / quiz / exam with a start (due) time and optional end time.
+Admin → **Tasks** → add an assignment / **class test** / quiz / exam with a start (due) time and optional end time.
+- **Class tests:** pick the type **Class Test**. Class tests usually have a date but no time, so tick
+  **All day, no specific time**. The card then shows the date with "All day", the badge reads **Today** on the day,
+  and it turns green after midnight. Google Calendar and `.ics` get a proper all-day event
+  (the `.ics` reminder rings at 09:00 the day before).
 - **Add to Google Calendar:** every task has a 📅 button that opens Google Calendar with the event pre-filled
   (plus a `.ics` download with a 30-min reminder for Apple/Outlook). No Google login or API setup needed.
 - **Auto colours:** purple = upcoming, amber = due within 24h, cyan = happening now,
@@ -35,10 +39,21 @@ Admin → **Tasks** → add an assignment / quiz / exam with a start (due) time 
   and move to the bottom once done. Nothing to click.
 - **Update the rules:** re-paste `firestore.rules` in Firebase → Firestore → Rules → Publish (adds `tasks`).
 
+## Import JSON files (many at once)
+`/admin → Import → Import JSON files`: choose or drag in as many `.json` files as you like. One file can hold
+`courses`, `tasks` and `notices` together. You get a preview (what will be imported, what is skipped and why) before anything is saved.
+- **Skip items that are already on the site** is ticked by default, so importing the same file twice does not create copies.
+- A bad file (not JSON, wrong shape) is shown with its error and left out. The good files still import.
+- Dates: `"2026-11-09"` is an all-day task (use it for class tests); `"2026-11-12 23:59"` is timed; `"end"` is optional.
+- `data/class-hub-data.json` is the ready-made file made from the Google Doc PDF. **Download example file** (in the same
+  panel) shows the format. The code that reads these files is `public/data-format.js`.
+
 ## Import from your Google Doc
 `/admin → Import`: pick Classroom, Tasks or Notices, then copy the table from the Google Doc (or Sheet) and paste it in.
 The first row must be column names (e.g. Course, Code, Credit, Teacher, Phone / Email, Office hours, Google Classroom code).
-Preview shows what was found; click Import. For tasks use dates like `2026-11-10 14:00`.
+Preview shows what was found; click Import. For tasks use dates like `2026-11-10 14:00`, or just a date for an all-day task.
+For the **Class Tests** table from the doc, choose **Class tests (CT table)**: the `CT No.` column becomes the title, `Syllabus` becomes the details,
+and every row gets the type Class Test.
 
 ## Google login and password reset
 1. Firebase → Authentication → Sign-in method → Add new provider → **Google** → Enable → pick a support email → Save.

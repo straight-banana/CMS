@@ -1,0 +1,114 @@
+{
+  "version": 1,
+  "source": "CSE_batch-18 (A) Schedular (info.pdf)",
+  "courses": [
+    {
+      "course": "Machine Learning",
+      "code": "CSE-411",
+      "teacher": "Saad Bin Kamal",
+      "contact": "saad.cse@baiust.ac.bd",
+      "communication": "WhatsApp message or email. Don't call or message after 21:00.",
+      "office": "Faculty room. Mon: 12:35 - 13:30; Tue: 10:30 - 11:30; Wed & Thu: 8:30 - 9:20 & 11:30 - 13:30",
+      "classroomCode": "kqzvnw27"
+    },
+    {
+      "course": "Machine Learning Sessional",
+      "code": "CSE-412",
+      "teacher": "Saad Bin Kamal",
+      "contact": "saad.cse@baiust.ac.bd",
+      "communication": "WhatsApp message or email. Don't call or message after 21:00.",
+      "office": "Faculty room. Mon: 12:35 - 13:30; Tue: 10:30 - 11:30; Wed & Thu: 8:30 - 9:20 & 11:30 - 13:30",
+      "classroomCode": "ixh4ldnp"
+    },
+    {
+      "course": "Compiler Design",
+      "code": "CSE-413",
+      "teacher": "Afroza Islam",
+      "contact": "+880 1701-080372 · afroza.cse@baiust.ac.bd",
+      "communication": "WhatsApp message",
+      "classroomCode": "s4qigxex"
+    },
+    {
+      "course": "Compiler Design Sessional",
+      "code": "CSE-414",
+      "teacher": "Afroza Islam",
+      "contact": "+880 1701-080372 · afroza.cse@baiust.ac.bd",
+      "communication": "WhatsApp message",
+      "classroomCode": "s4qigxex"
+    },
+    {
+      "course": "Research Methodology",
+      "code": "CSE-415",
+      "teacher": "Dr. Nargis Parvin",
+      "contact": "+880 1312-281428 · nargis.cse@baiust.ac.bd",
+      "communication": "Preferred in class or after class. WhatsApp message for emergencies only.",
+      "classroomCode": "xt6jovd4"
+    },
+    {
+      "course": "Cyber Security",
+      "code": "CSE-429",
+      "teacher": "Md. Fahim Kabir Chowdhury",
+      "contact": "+880 1575-126936 · fahim.cse@baiust.ac.bd",
+      "communication": "WhatsApp message or email",
+      "classroomCode": "6aigwwks"
+    },
+    {
+      "course": "Business Communication",
+      "code": "GED-411",
+      "teacher": "Yeakub Ali",
+      "contact": "+880 1616-451198 · yeakub.dba@baiust.ac.bd",
+      "communication": "TBA",
+      "classroomCode": "N/A"
+    }
+  ],
+  "tasks": [
+    {
+      "title": "CT-1: Compiler Design",
+      "type": "Class Test",
+      "course": "CSE-413 Compiler Design",
+      "start": "2026-10-27",
+      "details": "Syllabus: Chapter-1"
+    },
+    {
+      "title": "CT-1: Cyber Security",
+      "type": "Class Test",
+      "course": "CSE-429 Cyber Security",
+      "start": "2026-10-28",
+      "details": "Syllabus: Everything studied till the 3rd week\nRescheduled from 14 Oct 2026."
+    },
+    {
+      "title": "CT-1: Research Methodology",
+      "type": "Class Test",
+      "course": "CSE-415 Research Methodology",
+      "start": "2026-11-02",
+      "details": "Syllabus: Chapter-1 (slide)"
+    },
+    {
+      "title": "CT-1: Business Communication",
+      "type": "Class Test",
+      "course": "GED-411 Business Communication",
+      "start": "2026-11-04",
+      "details": "Syllabus: Chapter-1"
+    },
+    {
+      "title": "CT-2: Cyber Security",
+      "type": "Class Test",
+      "course": "CSE-429 Cyber Security",
+      "start": "2026-11-04",
+      "details": "Syllabus: Everything studied till the 4th week"
+    },
+    {
+      "title": "CT-1: Machine Learning",
+      "type": "Class Test",
+      "course": "CSE-411 Machine Learning",
+      "start": "2026-11-09",
+      "details": "Syllabus: Chapter-2"
+    }
+  ],
+  "notices": [
+    {
+      "title": "CSE-415: Short speech on chosen topic of thesis",
+      "body": "Date: 19 Oct 2026 (marked rescheduled in the doc)\nAnnounced by Nargis Parvin"
+    }
+  ]
+}

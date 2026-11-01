@@ -32,7 +32,8 @@ export const empty = (t) => el("p", { class: "empty" }, t);
 // Columns match the Google Doc table, in the same order, with the same labels.
 export const COLS = [
   ["course", "Course"], ["code", "Code"], ["credit", "Credit"], ["teacher", "Teacher"],
-  ["contact", "Phone / Email"], ["office", "Office hours"], ["classroomCode", "Google Classroom code"],
+  ["contact", "Phone / Email"], ["communication", "Primary communication"], ["office", "Office hours"],
+  ["classroomCode", "Google Classroom code"],
 ];
 
 export const classroomTable = (items, onDelete) =>
@@ -58,9 +59,12 @@ export const commentItem = (c, actions) =>
 // ---------- Tasks: status from the clock, Google Calendar link, .ics ----------
 const pad = (n) => String(n).padStart(2, "0");
 const utc = (d) => `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}00Z`;
+const nextDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1);
+const day = (d) => `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`;   // local date, for all-day events
 const span = (t) => {
   const s = t.start.toDate();
-  const e = t.end?.toDate ? t.end.toDate() : new Date(s.getTime() + 3600000); // no end time: 1 hour
+  if (t.allDay) return [s, nextDay(s)];                                           // class tests with a date but no time
+  const e = t.end?.toDate ? t.end.toDate() : new Date(s.getTime() + 3600000);     // no end time: 1 hour
   return [s, e];
 };
 
@@ -73,11 +77,12 @@ export const taskStatus = (t) => {
   return s - now < 864e5 ? "soon" : "upcoming";
 };
 const LABEL = { done: "Done", now: "Happening now", soon: "Due soon", upcoming: "Upcoming" };
+const labelOf = (t, st) => (st === "now" && t.allDay ? "Today" : LABEL[st]);
 
 export const gcalUrl = (t) => {
   const [s, e] = span(t);
   return "https://calendar.google.com/calendar/render?" + new URLSearchParams({
-    action: "TEMPLATE", text: t.title, dates: `${utc(s)}/${utc(e)}`,
+    action: "TEMPLATE", text: t.title, dates: t.allDay ? `${day(s)}/${day(e)}` : `${utc(s)}/${utc(e)}`,
     details: [t.course, t.details].filter(Boolean).join("\n"),
   });
 };
@@ -87,9 +92,11 @@ const downloadIcs = (t) => {
   const esc = (x) => (x || "").replace(/[\\;,]/g, (m) => "\\" + m).replace(/\n/g, "\\n");
   const body = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Class Hub//EN", "BEGIN:VEVENT",
     `UID:${s.getTime()}-${Math.random().toString(36).slice(2)}@classhub`, `DTSTAMP:${utc(new Date())}`,
-    `DTSTART:${utc(s)}`, `DTEND:${utc(e)}`, `SUMMARY:${esc(t.title)}`,
+    t.allDay ? `DTSTART;VALUE=DATE:${day(s)}` : `DTSTART:${utc(s)}`,
+    t.allDay ? `DTEND;VALUE=DATE:${day(e)}` : `DTEND:${utc(e)}`, `SUMMARY:${esc(t.title)}`,
     `DESCRIPTION:${esc([t.course, t.details].filter(Boolean).join("\n"))}`,
-    "BEGIN:VALARM", "TRIGGER:-PT30M", "ACTION:DISPLAY", "DESCRIPTION:Reminder", "END:VALARM",
+    // all-day events start at 00:00, so -15h rings at 09:00 the day before
+    "BEGIN:VALARM", t.allDay ? "TRIGGER:-PT15H" : "TRIGGER:-PT30M", "ACTION:DISPLAY", "DESCRIPTION:Reminder", "END:VALARM",
     "END:VEVENT", "END:VCALENDAR"].join("\r\n");
   const url = URL.createObjectURL(new Blob([body], { type: "text/calendar" }));
   el("a", { href: url, download: "task.ics" }).click();
@@ -98,6 +105,7 @@ const downloadIcs = (t) => {
 
 const when = (t) => {
   const [s, e] = span(t), o = { dateStyle: "medium", timeStyle: "short" };
+  if (t.allDay) return `${s.toLocaleDateString([], { dateStyle: "full" })} · All day`;
   return s.toDateString() === e.toDateString()
     ? `${s.toLocaleString([], o)} to ${e.toLocaleTimeString([], { timeStyle: "short" })}`
     : `${s.toLocaleString([], o)} to ${e.toLocaleString([], o)}`;
@@ -106,7 +114,7 @@ const when = (t) => {
 export const taskCard = (t, actions) => {
   const st = taskStatus(t);
   return el("article", { class: `card task ${st}` },
-    el("div", { class: "row" }, el("h3", {}, t.title), el("span", { class: `badge ${st}` }, LABEL[st])),
+    el("div", { class: "row" }, el("h3", {}, t.title), el("span", { class: `badge ${st}` }, labelOf(t, st))),
     el("p", { class: "muted small" }, [t.type, t.course].filter(Boolean).join(" · ")),
     el("p", {}, when(t)),
     t.details ? el("p", { class: "text" }, t.details) : null,

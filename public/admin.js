@@ -2,13 +2,14 @@ import { auth, db, signInWithEmailAndPassword, signOut, onAuthStateChanged, coll
   orderBy, onSnapshot, addDoc, deleteDoc, doc, getDoc, serverTimestamp, Timestamp, writeBatch } from "./firebase.js";
 import { googleButton, divider, forgotLink } from "./auth-ui.js";
 import { el, errMsg, classroomTable, noticeCard, commentItem, taskCard, empty, tabs, COLS } from "./common.js";
+import { TYPES, REQUIRED, canon, normalizeRecord, parseWhen } from "./data-format.js";
+import { jsonImportView, toDoc } from "./json-import.js";
 
 const root = document.getElementById("app");
 let unsubs = [];
 const stop = () => { unsubs.forEach((u) => u()); unsubs = []; };
 let loginError = "";
 
-const TYPES = ["Assignment", "Quiz", "Exam", "Lab", "Class", "Other"];
 // Form fields per collection: [key, label, required, multiline, input kind]
 const FIELDS = {
   courses: COLS.map(([k, l]) => [k, l, k === "course"]),
@@ -95,35 +96,43 @@ function manager(col, title) {
       : input;
     return { k, kind, input, node };
   });
+  const field = (k) => fields.find((f) => f.k === k);
+  const nodes = fields.map((f) => f.node);
+
+  // Tasks only: "All day" turns the start into a plain date (class tests have a date but no time).
+  let allDay = null, syncAllDay = () => {};
+  if (col === "tasks") {
+    allDay = el("input", { type: "checkbox", name: "allDay" });
+    syncAllDay = () => {
+      const on = allDay.checked, s = field("start"), e = field("end"), v = s.input.value;
+      s.input.type = on ? "date" : "datetime-local";                       // the browser clears the value when the type changes,
+      if (v) s.input.value = on ? v.slice(0, 10) : v.length === 10 ? v + "T09:00" : v;   // so put it back
+      if (on) e.input.value = "";
+      e.node.style.display = on ? "none" : "";
+    };
+    allDay.addEventListener("change", syncAllDay);
+    nodes.splice(nodes.indexOf(field("end").node) + 1, 0,
+      el("label", { class: "check" }, allDay, el("span", {}, "All day, no specific time (good for class tests)")));
+  }
+
   const msg = el("p", { class: "error", role: "alert" });
   const form = el("form", { onsubmit: async (e) => {
     e.preventDefault(); msg.textContent = "";
     const data = { createdAt: serverTimestamp() };
-    for (const f of fields) {
-      const v = f.input.value.trim();
-      data[f.k] = f.kind === "datetime-local" ? (v ? Timestamp.fromDate(new Date(v)) : null) : v;
+    for (const f of fields) if (f.kind !== "datetime-local") data[f.k] = f.input.value.trim();
+    if (col === "tasks") {
+      const on = allDay.checked, s = parseWhen(field("start").input.value), en = on ? null : parseWhen(field("end").input.value);
+      if (!s) { msg.textContent = "Pick a valid date."; return; }
+      if (en && en.date <= s.date) { msg.textContent = "The end time must be after the start time."; return; }
+      data.start = Timestamp.fromDate(s.date); data.end = en ? Timestamp.fromDate(en.date) : null; data.allDay = on;
     }
-    if (data.end && data.end.toMillis() <= data.start.toMillis()) { msg.textContent = "The end time must be after the start time."; return; }
-    try { await addDoc(collection(db, col), data); form.reset(); } catch (err) { msg.textContent = errMsg(err); }
-  } }, fields.map((f) => f.node), msg, el("button", { class: "btn", type: "submit" }, "Add"));
+    try { await addDoc(collection(db, col), data); form.reset(); syncAllDay(); } catch (err) { msg.textContent = errMsg(err); }
+  } }, nodes, msg, el("button", { class: "btn", type: "submit" }, "Add"));
   const add = el("details", { class: "card add", open: "" }, el("summary", {}, `Add ${NOUN[col]}`), form);
   return section(title, add, listOf(col, col === "notices" ? "desc" : "asc"));
 }
 
-// ---------- Import: paste a table from Google Docs, Google Sheets or CSV ----------
-const norm = (h) => h.toLowerCase().replace(/[^a-z0-9]/g, "");
-const ALIAS = {
-  courses: { course: "course", coursename: "course", subject: "course", title: "course", code: "code", coursecode: "code",
-    credit: "credit", credits: "credit", teacher: "teacher", instructor: "teacher", faculty: "teacher",
-    phoneemail: "contact", contact: "contact", phone: "contact", email: "contact", officehours: "office", office: "office",
-    googleclassroomcode: "classroomCode", classroomcode: "classroomCode", classroom: "classroomCode" },
-  tasks: { title: "title", task: "title", name: "title", type: "type", course: "course", subject: "course",
-    start: "start", starts: "start", due: "start", duedate: "start", date: "start", end: "end", ends: "end",
-    details: "details", description: "details", notes: "details" },
-  notices: { title: "title", heading: "title", body: "body", details: "body", description: "body", text: "body" },
-};
-const REQUIRED = { courses: "course", tasks: "title", notices: "title" };
-
+// ---------- Import: JSON files (many at once) and pasted tables ----------
 function parseTable(text) {
   const delim = text.includes("\t") ? "\t" : ",";
   const rows = []; let row = [], cur = "", q = false;
@@ -139,32 +148,25 @@ function parseTable(text) {
   return rows.map((r) => r.map((x) => x.trim())).filter((r) => r.some(Boolean));
 }
 
-function toRecords(col, text) {
+function toRecords(col, text, defaultType) {
   const rows = parseTable(text);
   if (rows.length < 2) return { error: "Need a header row plus at least one data row." };
-  const map = rows[0].map((h) => ALIAS[col][norm(h)]);
-  const req = REQUIRED[col];
-  if (!map.includes(req)) return { error: `No "${req}" column found in the first (header) row. Headers seen: ${rows[0].join(", ")}` };
+  const heads = rows[0], map = heads.map((h) => canon(col, h)), req = REQUIRED[col];
+  if (!map.includes(req)) return { error: `No "${req}" column found in the first (header) row. Headers seen: ${heads.join(", ")}` };
   const recs = [], skipped = [];
   rows.slice(1).forEach((r, i) => {
-    const d = {};
-    map.forEach((k, j) => { if (k && r[j] !== undefined) d[k] = r[j]; });
-    if (!d[req]) return skipped.push(i + 2);
-    if (col === "tasks") {
-      const s = new Date(d.start);
-      if (!d.start || isNaN(s)) return skipped.push(i + 2);
-      const e = d.end ? new Date(d.end) : null;
-      d.start = Timestamp.fromDate(s);
-      d.end = e && !isNaN(e) && e > s ? Timestamp.fromDate(e) : null;
-      d.type = TYPES.find((t) => t.toLowerCase() === (d.type || "").toLowerCase()) || "Other";
-    }
-    recs.push(d);
+    const raw = {};
+    heads.forEach((h, j) => { if (map[j] && r[j] !== undefined) raw[h] = r[j]; });
+    const n = normalizeRecord(col, raw, { defaultType });
+    if (n.rec) recs.push(n.rec); else skipped.push(i + 2);
   });
-  return { recs, skipped, ignored: rows[0].filter((h, j) => h && !map[j]) };
+  return { recs, skipped, ignored: heads.filter((h, j) => h && !map[j]) };
 }
 
-function importView() {
-  const sel = el("select", {}, ...[["courses", "Classroom"], ["tasks", "Tasks"], ["notices", "Notices"]]
+const importView = () => section("Import", jsonImportView(), el("h2", {}, "Paste a table"), pasteImport());
+
+function pasteImport() {
+  const sel = el("select", {}, ...[["courses", "Classroom"], ["tasks", "Tasks"], ["tasks-ct", "Class tests (CT table)"], ["notices", "Notices"]]
     .map(([v, l]) => el("option", { value: v }, l)));
   const area = el("textarea", { rows: "9", placeholder: "Paste the table here. The first row holds the column names." });
   const out = el("div");
@@ -172,7 +174,7 @@ function importView() {
   const preview = () => {
     out.replaceChildren();
     if (!area.value.trim()) return;
-    const col = sel.value, r = toRecords(col, area.value);
+    const ct = sel.value === "tasks-ct", col = ct ? "tasks" : sel.value, r = toRecords(col, area.value, ct ? "Class Test" : undefined);
     if (r.error) return out.append(el("p", { class: "error" }, r.error));
     const btn = el("button", { class: "btn", onclick: async () => {
       btn.disabled = true;
@@ -180,24 +182,24 @@ function importView() {
         const base = Date.now();
         for (let i = 0; i < r.recs.length; i += 400) {            // a Firestore batch holds 500 writes at most
           const b = writeBatch(db);
-          r.recs.slice(i, i + 400).forEach((d, k) => b.set(doc(collection(db, col)),
-            { ...d, createdAt: Timestamp.fromMillis(base + i + k) })); // keeps the pasted order
+          r.recs.slice(i, i + 400).forEach((d, k) => b.set(doc(collection(db, col)), toDoc(col, d, base + i + k))); // keeps the pasted order
           await b.commit();
         }
         area.value = ""; out.replaceChildren(el("p", { class: "ok" }, `Imported ${r.recs.length} rows.`));
       } catch (e) { btn.disabled = false; out.append(el("p", { class: "error" }, errMsg(e))); }
     } }, `Import ${r.recs.length} rows`);
-    const first = r.recs[0], label = first.course || first.title;
-    out.append(
-      el("p", {}, `Found ${r.recs.length} rows. The first one is "${label}".`),
+    if (!r.recs.length) btn.disabled = true;
+    const first = r.recs[0], label = first ? first.course || first.title : "";
+    out.append(...[                                              // append(null) would print the word "null"
+      first ? el("p", {}, `Found ${r.recs.length} rows. The first one is "${label}".`) : null,
       r.ignored.length ? el("p", { class: "muted small" }, `Ignored columns: ${r.ignored.join(", ")}`) : null,
       r.skipped.length ? el("p", { class: "error" }, `Skipped rows ${r.skipped.join(", ")}. They have no ${REQUIRED[col]}${col === "tasks" ? " or no readable date" : ""}.`) : null,
-      btn);
+      btn].filter(Boolean));
   };
   area.addEventListener("input", preview); sel.addEventListener("change", preview);
 
-  return section("Import",
-    el("div", { class: "card" },
-      el("p", { class: "muted" }, "Select the table in your Google Doc, copy it, and paste it below. Google Sheets and CSV text also work. Imported rows are added to the existing ones."),
-      sel, area, out));
+  return el("div", { class: "card" },
+    el("p", { class: "muted" }, "Select the table in your Google Doc, copy it, and paste it below. Google Sheets and CSV text also work. Imported rows are added to the existing ones. "
+      + "For the Class Tests table choose Class tests: dates without a time become all-day tasks."),
+    sel, area, out);
 }

@@ -110,3 +110,21 @@ details.add form { margin-top: 12px; }
 .or::before, .or::after { content: ""; flex: 1; height: 1px; background: var(--line); }
 .forgot { align-self: flex-start; padding: 0; }
 .ok:empty { display: none; }
+
+/* Checkbox rows, JSON import */
+.check { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; }
+.check input { width: auto; flex: none; margin-top: 4px; accent-color: var(--accent); }
+.json-import { display: flex; flex-direction: column; gap: 12px; }
+.json-import > p, .json-import > h3 { margin: 0; }
+.drop { padding: 18px 16px; text-align: center; border: 2px dashed var(--line); border-radius: 10px; background: var(--bg); }
+.drop.over { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--bg)); }
+.drop p { margin: 0 0 10px; color: var(--muted); }
+.drop input { background: var(--card); }
+.files { margin: 0; }
+.file-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 2px; border-bottom: 1px solid var(--line); }
+.file-row .fname { overflow-wrap: anywhere; }
+.problems summary { cursor: pointer; font-weight: 600; }
+.problems ul { margin: 8px 0 0; padding-left: 20px; }
+.problems pre { margin: 10px 0; padding: 12px; overflow-x: auto; font-size: .8rem; line-height: 1.45; background: var(--bg);
+  border: 1px solid var(--line); border-radius: 8px; }
+.sum table.doc td:not(:first-child), .sum table.doc th:not(:first-child) { text-align: right; }
