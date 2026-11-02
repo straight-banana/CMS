@@ -1,7 +1,7 @@
 import { auth, db, signInWithEmailAndPassword, signOut, onAuthStateChanged, collection, query,
   orderBy, onSnapshot, addDoc, updateDoc, deleteDoc, doc, getDoc, serverTimestamp, Timestamp, writeBatch } from "./firebase.js";
 import { googleButton, divider, forgotLink } from "./auth-ui.js";
-import { el, errMsg, classroomTable, noticeCard, commentItem, taskCard, empty, tabs, isClassTest, COLS } from "./common.js";
+import { el, errMsg, classroomTable, noticeCard, commentItem, taskCard, empty, tabs, isClassTest, COLS, loading, failed, labeled } from "./common.js";
 import { TYPES, STATUSES, REQUIRED, canon, normalizeRecord, parseWhen } from "./data-format.js";
 import { jsonImportView, toDoc } from "./json-import.js";
 
@@ -14,7 +14,7 @@ let loginError = "";
 const FIELDS = {
   courses: COLS.map(([k, l]) => [k, l, k === "course"]),
   notices: [["title", "Title", 1], ["body", "Details", 0, 1]],
-  tasks: [["title", "Title, for example Assignment 2", 1], ["type", "Type", 0, 0, "select"], ["course", "Course"],
+  tasks: [["title", "Title", 1], ["type", "Type", 0, 0, "select"], ["course", "Course"],
     ["start", "Starts or is due", 1, 0, "datetime-local"], ["end", "Ends (optional, default is 1 hour)", 0, 0, "datetime-local"],
     ["details", "Details", 0, 1]],
 };
@@ -35,17 +35,18 @@ onAuthStateChanged(auth, async (user) => {
 function renderLogin() {
   const msg = el("p", { class: "error", role: "alert" }, loginError); loginError = "";
   const note = el("p", { class: "ok small", role: "status" });
-  const email = el("input", { type: "email", placeholder: "Admin email", required: "", autocomplete: "email" });
-  const pass = el("input", { type: "password", placeholder: "Password", required: "", autocomplete: "current-password" });
+  const email = el("input", { type: "email", placeholder: "name@example.com", required: "", autocomplete: "email" });
+  const pass = el("input", { type: "password", required: "", autocomplete: "current-password" });
   const btn = el("button", { class: "btn", type: "submit" }, "Log in");
   root.replaceChildren(el("main", { class: "auth" },
-    el("h1", {}, "Class Hub admin"), el("p", { class: "muted" }, "Only the CR and admins can log in here."),
+    el("div", { class: "auth-intro" }, el("h1", {}, "Class Hub admin"),
+      el("p", { class: "lead" }, "Only the CR and admins can log in here."),
+      el("p", {}, el("a", { class: "link", href: "/" }, "Go to the student page"))),
     el("div", { class: "card" }, googleButton(msg), divider(), el("form", { onsubmit: async (e) => {
       e.preventDefault(); msg.textContent = ""; btn.disabled = true;
       try { await signInWithEmailAndPassword(auth, email.value, pass.value); }
       catch (err) { msg.textContent = errMsg(err); btn.disabled = false; }
-    } }, email, pass, forgotLink(email, msg, note), note, msg, btn)),
-    el("p", {}, el("a", { class: "link", href: "/" }, "Go to the student page"))));
+    } }, labeled("Admin email", email), labeled("Password", pass), forgotLink(email, msg, note), note, msg, btn))));
 }
 
 // Class tests and other tasks live in one Firestore collection ("tasks"); the type decides which tab shows them.
@@ -66,10 +67,12 @@ function renderPanel() {
         : id === "import" ? importView() : TABS[id]());
     });
   root.replaceChildren(
-    el("header", { class: "top" }, el("span", { class: "muted small" }, "Admin"),
-      el("div", { class: "right" }, el("a", { class: "link", href: "/" }, "Student view"),
-        el("button", { class: "btn ghost", onclick: () => signOut(auth) }, "Log out"))),
-    el("main", {}, el("h1", {}, "Class Hub"), el("p", { class: "byline" }, "Admin control panel"), bar, body));
+    el("header", { class: "masthead" }, el("div", { class: "wrap" },
+      el("div", {}, el("h1", {}, "Class Hub"), el("p", { class: "byline" }, "Admin control panel")),
+      el("div", { class: "mast-actions" }, el("a", { class: "link", href: "/" }, "Student view"),
+        el("button", { class: "btn ghost", onclick: () => signOut(auth) }, "Log out")))),
+    el("main", { class: "wrap shell" }, el("div", { class: "layout" }, bar, body)),
+    el("footer", { class: "wrap foot" }, "Changes save to the live site straight away. Deleting cannot be undone."));
 }
 
 const section = (title, ...kids) => el("div", {}, el("h2", {}, title), ...kids);
@@ -84,11 +87,9 @@ function buildForm(col, { labeled = false, types = TYPES, allDay: allDayDefault 
   const fields = FIELDS[col].map(([k, label, req, multi, kind]) => {
     const input = kind === "select"
       ? el("select", { name: k }, ...types.map((t) => el("option", { value: t }, t)))
-      : el(multi ? "textarea" : "input", { name: k, placeholder: label + (req ? " (required)" : ""),
+      : el(multi ? "textarea" : "input", { name: k, ...(col === "tasks" && k === "title" ? { placeholder: "For example, Assignment 2" } : {}),
           ...(kind ? { type: kind } : {}), ...(req ? { required: "" } : {}) });
-    const node = kind === "datetime-local" || labeled
-      ? el("label", { class: "field" }, el("span", { class: "muted small" }, label + (req ? " (required)" : "")), input)
-      : input;
+    const node = el("label", { class: "field" }, el("span", {}, label + (req ? " (required)" : "")), input);
     return { k, kind, input, node };
   });
   const field = (k) => fields.find((f) => f.k === k);
@@ -143,7 +144,7 @@ function buildForm(col, { labeled = false, types = TYPES, allDay: allDayDefault 
 }
 
 function listOf(col, dir, { only = () => true, types } = {}) {
-  const out = el("div");
+  const out = el("div", {}, loading("Loading…"));
   let items = [], editing = null;                       // editing: id of the task whose form is open
   const del = async (id) => {
     if (!confirm("Delete this permanently?")) return;
@@ -164,7 +165,7 @@ function listOf(col, dir, { only = () => true, types } = {}) {
     f.fill(i);
     const msg = el("p", { class: "error", role: "alert" });
     return el("article", { class: "card" }, el("h3", {}, "Edit task"),
-      el("form", { onsubmit: async (e) => {
+      el("form", { class: "formgrid", onsubmit: async (e) => {
         e.preventDefault(); msg.textContent = "";
         const r = f.collect();
         if (r.error) { msg.textContent = r.error; return; }
@@ -174,28 +175,28 @@ function listOf(col, dir, { only = () => true, types } = {}) {
         el("button", { class: "btn ghost", type: "button", onclick: () => { editing = null; draw(); } }, "Cancel"))));
   };
 
-  const draw = () => out.replaceChildren(!items.length ? empty("Nothing here yet.")
+  const draw = () => out.replaceChildren(!items.length ? empty("Nothing here yet.", col === "comments" ? "Student comments will appear here." : "Use the form above to add the first one.")
     : col === "courses" ? classroomTable(items, (c) => del(c.id))
-    : el("div", { class: col === "comments" ? "stack" : "grid" }, ...items.map((i) =>
+    : el("div", { class: "list" }, ...items.map((i) =>
         col === "tasks" ? (editing === i.id ? editCard(i) : taskCard(i, taskActions(i)))
         : RENDER[col](i, el("button", { class: "btn danger", onclick: () => del(i.id) }, "Delete")))));
 
   unsubs.push(onSnapshot(query(collection(db, col), orderBy(col === "tasks" ? "start" : "createdAt", dir)),
     (s) => { items = s.docs.map((d) => ({ id: d.id, ...d.data() })).filter(only); draw(); },
-    (e) => out.replaceChildren(empty(errMsg(e)))));
+    (e) => out.replaceChildren(failed(e))));
   return out;
 }
 
 function manager(col, title, { only, types, allDay, noun } = {}) {
   const f = buildForm(col, { types, allDay });
   const msg = el("p", { class: "error", role: "alert" });
-  const form = el("form", { onsubmit: async (e) => {
+  const form = el("form", { class: "formgrid", onsubmit: async (e) => {
     e.preventDefault(); msg.textContent = "";
     const r = f.collect();
     if (r.error) { msg.textContent = r.error; return; }
     try { await addDoc(collection(db, col), { ...r.data, createdAt: serverTimestamp() }); f.reset(); }
     catch (err) { msg.textContent = errMsg(err); }
-  } }, f.nodes, msg, el("button", { class: "btn", type: "submit" }, "Add"));
+  } }, f.nodes, msg, el("button", { class: "btn", type: "submit" }, "Add " + (noun || NOUN[col]).replace(/^an? /, "")));
   const add = el("details", { class: "card add", open: "" }, el("summary", {}, `Add ${noun || NOUN[col]}`), form);
   return section(title, add, listOf(col, col === "notices" ? "desc" : "asc", { only, types }));
 }
@@ -269,5 +270,5 @@ function pasteImport() {
   return el("div", { class: "card" },
     el("p", { class: "muted" }, "Select the table in your Google Doc, copy it, and paste it below. Google Sheets and CSV text also work. Imported rows are added to the existing ones. "
       + "For the Class Tests table choose Class tests: dates without a time become all-day tasks."),
-    sel, area, out);
+    labeled("Table type", sel), labeled("Pasted table", area), out);
 }

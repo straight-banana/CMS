@@ -29,7 +29,14 @@ const ERRORS = {
   "permission-denied": "You do not have permission to do that.",
 };
 export const errMsg = (e) => ERRORS[e.code] || e.message || "Something went wrong.";
-export const empty = (t) => el("p", { class: "empty" }, t);
+export const empty = (t, hint) =>
+  el("div", { class: "empty" }, el("p", { class: "empty-title" }, t), hint ? el("p", { class: "empty-hint" }, hint) : null);
+export const loading = (t) => el("p", { class: "loading", role: "status" }, t);
+export const failed = (e) =>
+  el("div", { class: "empty failed", role: "alert" }, el("p", { class: "empty-title" }, "This could not load."),
+    el("p", { class: "empty-hint" }, `${errMsg(e)} Reload the page to try again.`));
+export const labeled = (label, input, hint) =>
+  el("label", { class: "field" }, el("span", {}, label), hint ? el("span", { class: "muted small" }, hint) : null, input);
 
 // Columns match the Google Doc table, in the same order, with the same labels.
 export const COLS = [
@@ -40,6 +47,7 @@ export const COLS = [
 
 export const classroomTable = (items, onDelete) =>
   el("div", { class: "table-wrap" }, el("table", { class: "doc" },
+    el("caption", { class: "sr" }, "Courses"),
     el("thead", {}, el("tr", {},
       ...COLS.map(([, label]) => el("th", { scope: "col" }, label)),
       onDelete ? el("th", { scope: "col" }, "Action") : null)),
@@ -49,9 +57,9 @@ export const classroomTable = (items, onDelete) =>
         el("button", { class: "btn danger", onclick: () => onDelete(c) }, "Delete")) : null)))));
 
 export const noticeCard = (n, actions) =>
-  el("article", { class: "card" },
-    el("h3", {}, n.title), el("p", { class: "text" }, n.body || null),
-    el("p", { class: "muted small" }, fmt(n.createdAt)), actions);
+  el("article", { class: "notice" },
+    el("p", { class: "stamp" }, fmt(n.createdAt)), el("h3", {}, n.title),
+    n.body ? el("p", { class: "text" }, n.body) : null, actions);
 
 export const commentItem = (c, actions) =>
   el("div", { class: "comment" },
@@ -117,22 +125,27 @@ const when = (t) => {
 };
 
 export const taskCard = (t, actions) => {
-  const st = taskStatus(t);
-  return el("article", { class: `card task ${st}` },
-    el("div", { class: "row" }, el("h3", {}, t.title), el("span", { class: `badge ${st}` }, labelOf(t, st))),
-    el("p", { class: "muted small" }, [t.type, t.course].filter(Boolean).join(" · ")),
-    el("p", {}, when(t)),
-    t.details ? el("p", { class: "text" }, t.details) : null,
-    el("div", { class: "actions" },
-      st !== "done" ? el("a", { class: "btn ghost", href: gcalUrl(t), target: "_blank", rel: "noopener" }, "Add to Google Calendar") : null,
-      st !== "done" ? el("button", { class: "btn ghost", onclick: () => downloadIcs(t) }, "Download .ics") : null,
-      actions));
+  const st = taskStatus(t), [s] = span(t);
+  return el("article", { class: `task ${st}` },
+    el("div", { class: "tile", "aria-hidden": "true" },
+      el("span", { class: "mon" }, s.toLocaleDateString([], { month: "short" })),
+      el("span", { class: "day" }, String(s.getDate())),
+      el("span", { class: "dow" }, s.toLocaleDateString([], { weekday: "short" }))),
+    el("div", {},
+      el("div", { class: "row" }, el("h3", {}, t.title), el("span", { class: `badge ${st}` }, labelOf(t, st))),
+      el("p", { class: "muted small" }, [t.type, t.course].filter(Boolean).join(" · ")),
+      el("p", { class: "when" }, when(t)),
+      t.details ? el("p", { class: "text" }, t.details) : null,
+      el("div", { class: "actions" },
+        st !== "done" ? el("a", { class: "btn ghost", href: gcalUrl(t), target: "_blank", rel: "noopener" }, "Add to Google Calendar") : null,
+        st !== "done" ? el("button", { class: "btn ghost", onclick: () => downloadIcs(t) }, "Download .ics") : null,
+        actions)));
 };
 
 // ---------- Tabs, one per section of the doc. The tab name is kept in the URL hash. ----------
 export function tabs(defs, render) {
   const bar = el("nav", { class: "tabs", role: "tablist" });
-  const body = el("div", { class: "panel" });
+  const body = el("div", { class: "panel", role: "tabpanel", id: "panel" });
   const select = (id, push = true) => {
     if (!defs.some((d) => d[0] === id)) id = defs[0][0];
     [...bar.children].forEach((b) => {
@@ -140,11 +153,12 @@ export function tabs(defs, render) {
       b.classList.toggle("active", on);
       b.setAttribute("aria-selected", String(on));
     });
+    body.setAttribute("aria-labelledby", "tab-" + id);
     if (push) history.replaceState(null, "", "#" + id);
     render(id, body);
   };
   defs.forEach(([id, label]) =>
-    bar.append(el("button", { class: "tab", role: "tab", "data-t": id, onclick: () => select(id) }, label)));
+    bar.append(el("button", { class: "tab", role: "tab", id: "tab-" + id, "aria-controls": "panel", "data-t": id, onclick: () => select(id) }, label)));
   select(location.hash.slice(1), false);
   return { bar, body };
 }
